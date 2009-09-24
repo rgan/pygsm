@@ -4,11 +4,6 @@
 
 from __future__ import with_statement
 
-
-# arch: pacman -S python-pyserial
-# debian/ubuntu: apt-get install python-serial
-import serial
-
 # debian/ubuntu: apt-get install python-tz
 import pytz 
 
@@ -101,6 +96,10 @@ class GsmModem(object):
         if "logger" in kwargs:
             self.logger = kwargs.pop("logger")
         
+        mode = "PDU"
+        if "mode" in kwargs:
+            mode = kwargs.pop("mode")
+        
         # if a ready-made device was provided, store it -- self.connect
         # will see that we're already connected, and do nothing. we'll
         # just assume it quacks like a serial port
@@ -109,8 +108,8 @@ class GsmModem(object):
 
             # if a device is given, the other args are never
             # used, so were probably included by mistake.
-            #if len(args) or len(kwargs):
-            #    raise(TypeError("__init__() does not accept other arguments when a 'device' is given"))
+            if len(args) or len(kwargs):
+                raise(TypeError("__init__() does not accept other arguments when a 'device' is given"))
 
         # for regular serial connections, store the connection args, since
         # we might need to recreate the serial connection again later
@@ -125,10 +124,6 @@ class GsmModem(object):
         # to store unhandled incoming messages
         self.incoming_queue = []
         
-        mode = "PDU"
-        if "mode" in kwargs:
-            mode = kwargs.pop("mode")
-
         if mode == "TEXT":
             self.smshandler = TextSmsHandler(self)
         else:
@@ -183,8 +178,8 @@ class GsmModem(object):
         # the reconnect flag is irrelevant
         if not hasattr(self, "device") or (self.device is None):
             with self.modem_lock:
-                self.device = serial.Serial(
-                    *self.device_args,
+                self.device = DeviceWrapper(
+                    logger, *self.device_args,
                     **self.device_kwargs)
                 
         # the port already exists, but if we're
@@ -457,7 +452,6 @@ class GsmModem(object):
            If Error 515 (init or command in progress) is returned, the command
            is automatically retried up to _GsmModem.max_retries_ times."""
 
-        device_wrapper = DeviceWrapper(self.device, self.logger)
         # keep looping until the command
         # succeeds or we hit the limit
         retries = 0
@@ -468,10 +462,10 @@ class GsmModem(object):
                 # response
                 with self.modem_lock:
                     self._write(cmd + write_term)
-                    lines = device_wrapper.read_lines(
+                    lines = self.device.read_lines(
                         read_term=read_term,
                         read_timeout=read_timeout)
-
+                print lines
                 # no exception was raised, so break
                 # out of the enclosing WHILE loop
                 break

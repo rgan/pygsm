@@ -6,11 +6,11 @@ from smshandler import SmsHandler
 
 class TextSmsHandler(SmsHandler):
     
-    def __init__(self,modem):
+    def __init__(self, modem):
         SmsHandler.__init__(self, modem)
     
     def get_mode_cmd(self):
-	    return "AT+CMGF=1"
+        return "AT+CMGF=1"
 	    
     def send_sms(self, recipient, text):
         """Sends an SMS to _recipient_ containing _text_. Some networks
@@ -32,7 +32,7 @@ class TextSmsHandler(SmsHandler):
 
                     # fetch and store the current mode (so we can
                     # restore it later), and override it with UCS2
-                    csmp = self.query("AT+CSMP?", "+CSMP:")
+                    csmp = self.modem.query("AT+CSMP?", "+CSMP:")
                     if csmp is not None:
                         old_mode = csmp.split(",")
                         mode = old_mode[:]

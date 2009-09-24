@@ -24,7 +24,6 @@ class TestIncomingMessage(unittest.TestCase):
         self.assertEqual(device.sent_messages[0]["recipient"], "1234")
         self.assertEqual(device.sent_messages[0]["text"], "Test Message")
 
-
     def testRetryCommands(self):
         """Checks that the GsmModem automatically retries
            commands that fail with a CMS 515 error, and does

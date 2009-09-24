@@ -1,23 +1,26 @@
 #!/usr/bin/env python
 # vim: ai ts=4 sts=4 et sw=4 encoding=utf-8
 
+# arch: pacman -S python-pyserial
+# debian/ubuntu: apt-get install python-serial
+import serial
 import re
 import errors
 
 class DeviceWrapper(object):
 	
-    def __init__(self,device, logger):
-		self.device = device
-		self.logger = logger
+    def __init__(self, logger, *args, **kwargs):
+        self.device = serial.Serial(*args, **kwargs)
+        self.logger = logger
 
     def isOpen(self):
-        return self.device.isOpen
+        return self.device.isOpen()
 
-	def close(self):
-	    self.device.close()
+    def close(self):
+        self.device.close()
 	
-	def write(self, str):
-	    self.device.write(str)
+    def write(self, str):
+        self.device.write(str)
 			
     def _read(self, read_term=None, read_timeout=None):
         """Read from the modem (blocking) until _terminator_ is hit,
