@@ -18,6 +18,9 @@ import traceback
 import threading
 import gsmcodecs
 import gsmpdu
+from devicewrapper import DeviceWrapper
+from pdusmshandler import PduSmsHandler
+from textsmshandler import TextSmsHandler
 
 # Constants
 CMGL_STATUS="0" 
@@ -106,8 +109,8 @@ class GsmModem(object):
 
             # if a device is given, the other args are never
             # used, so were probably included by mistake.
-            if len(args) or len(kwargs):
-                raise(TypeError("__init__() does not accept other arguments when a 'device' is given"))
+            #if len(args) or len(kwargs):
+            #    raise(TypeError("__init__() does not accept other arguments when a 'device' is given"))
 
         # for regular serial connections, store the connection args, since
         # we might need to recreate the serial connection again later
@@ -121,7 +124,15 @@ class GsmModem(object):
 
         # to store unhandled incoming messages
         self.incoming_queue = []
+        
+        mode = "PDU"
+        if "mode" in kwargs:
+            mode = kwargs.pop("mode")
 
+        if mode == "TEXT":
+            self.smshandler = TextSmsHandler(self)
+        else:
+            self.smshandler = PduSmsHandler(self)
         # boot the device on init, to fail as
         # early as possible if it can't be opened
         self.boot()
@@ -218,7 +229,7 @@ class GsmModem(object):
         self.command("AT+CMEE=1", raise_errors=False) # useful error messages
         self.command("AT+WIND=0", raise_errors=False) # disable notifications
         self.command("AT+CSMS=1", raise_errors=False) # set SMS mode to phase 2+
-        self.command("AT+CMGF=0"                    ) # make sure in PDU mode
+        self.command(self.smshandler.get_mode_cmd()      ) # make sure in PDU mode
 
         # enable new message notification
         self.command(
@@ -272,90 +283,6 @@ class GsmModem(object):
         # sensibly be caught at a higher level
         except OSError, err:
             raise(errors.GsmWriteError)
-
-
-    def _read(self, read_term=None, read_timeout=None):
-        """Read from the modem (blocking) until _terminator_ is hit,
-           (defaults to \r\n, which reads a single "line"), and return."""
-        
-        buffer = []
-
-        # if a different timeout was requested just
-        # for _this_ read, store and override the
-        # current device setting (not thread safe!)
-        if read_timeout is not None:
-            old_timeout = self.device.timeout
-            self.device.timeout = read_timeout
-
-        def __reset_timeout():
-            """restore the device's previous timeout
-               setting, if we overrode it earlier."""
-            if read_timeout is not None:
-                self.device.timeout =\
-                    old_timeout
-
-        # the default terminator reads
-        # until a newline is hit
-        if read_term is None:
-            read_term = "\r\n"
-
-        while(True):
-            buf = self.device.read()
-            buffer.append(buf)
-
-            # if a timeout was hit, raise an exception including the raw data that
-            # we've already read (in case the calling func was _expecting_ a timeout
-            # (wouldn't it be nice if serial.Serial.read returned None for this?)
-            if buf == '':
-                __reset_timeout()
-                raise(errors.GsmReadTimeoutError(buffer))
-
-            # if last n characters of the buffer match the read
-            # terminator, return what we've received so far
-            if ''.join(buffer[-len(read_term):]) == read_term:
-                buf_str = ''.join(buffer)
-                __reset_timeout()
-
-                self._log(repr(buf_str), 'read')
-                return buf_str
-
-
-    def _wait(self, read_term=None, read_timeout=None):
-        """Read from the modem (blocking) one line at a time until a response
-           terminator ("OK", "ERROR", or "CMx ERROR...") is hit, then return
-           a list containing the lines."""
-        buffer = []
-
-        # keep on looping until a command terminator
-        # is encountered. these are NOT the same as the
-        # "read_term" argument - only OK or ERROR is valid
-        while(True):
-            buf = self._read(
-                read_term=read_term,
-                read_timeout=read_timeout)
-
-            buf = buf.strip()
-            buffer.append(buf)
-
-            # most commands return OK for success, but there
-            # are some exceptions. we're not checking those
-            # here (unlike RubyGSM), because they should be
-            # handled when they're _expected_
-            if buf == "OK":
-                return buffer
-
-            # some errors contain useful error codes, so raise a
-            # proper error with a description from pygsm/errors.py
-            m = re.match(r"^\+(CM[ES]) ERROR: (\d+)$", buf)
-            if m is not None:
-                type, code = m.groups()
-                raise(errors.GsmModemError(type, int(code)))
-
-            # ...some errors are not so useful
-            # (at+cmee=1 should enable error codes)
-            if buf == "ERROR":
-                raise(errors.GsmModemError)
-
 
     SCTS_FMT = "%y/%m/%d,%H:%M:%S"
     def _parse_incoming_timestamp(self, timestamp):
@@ -530,6 +457,7 @@ class GsmModem(object):
            If Error 515 (init or command in progress) is returned, the command
            is automatically retried up to _GsmModem.max_retries_ times."""
 
+        device_wrapper = DeviceWrapper(self.device, self.logger)
         # keep looping until the command
         # succeeds or we hit the limit
         retries = 0
@@ -540,7 +468,7 @@ class GsmModem(object):
                 # response
                 with self.modem_lock:
                     self._write(cmd + write_term)
-                    lines = self._wait(
+                    lines = device_wrapper.read_lines(
                         read_term=read_term,
                         read_timeout=read_timeout)
 
@@ -629,7 +557,7 @@ class GsmModem(object):
         return None
 
 
-    def send_sms(self, recipient, text, max_messages=255):
+    def send_sms(self, recipient, text):
         """
         Sends an SMS to _recipient_ containing _text_. 
 
@@ -641,69 +569,11 @@ class GsmModem(object):
         Raises 'ValueError' if text will not fit in max_messages
 
         """
-        pdus = gsmpdu.get_outbound_pdus(text, recipient)
-
-        if len(pdus) > max_messages:
-            raise ValueError(
-                'Max_message is %d and text requires %d messages' %
-                (max_messages, len(pdus))
-                )
-
-        for pdu in pdus:
-            self._send_pdu(pdu)
-
-    def _send_pdu(self, pdu):
         with self.modem_lock:
-            # outer try to catch any error and make sure to
-            # get the modem out of 'waiting for data' mode
-            try:
-                # accesing the property causes the pdu_string
-                # to be generated, so do once and cache
-                pdu_string = pdu.pdu_string
+            self.smshandler.send_sms(recipient, text)
 
-                # try to catch write timeouts
-                try:
-                    # content length is in bytes, so half PDU minus
-                    # the first blank '00' byte
-                    result = self.command( 
-                        'AT+CMGS=%d' % (len(pdu_string)/2 - 1), 
-                        read_timeout=1
-                        )
-
-                # if no error is raised within the timeout period,
-                # and the text-mode prompt WAS received, send the
-                # sms text, wait until it is accepted or rejected
-                # (text-mode messages are terminated with ascii char 26
-                # "SUBSTITUTE" (ctrl+z)), and return True (message sent)
-                except errors.GsmReadTimeoutError, err:
-                    if err.pending_data[0] == ">":
-                        self.command(pdu_string, write_term=chr(26))
-                        return True
-
-                    # a timeout was raised, but no prompt nor
-                    # error was received. i have no idea what
-                    # is going on, so allow the error to propagate
-                    else:
-                        raise
-
-                finally:
-                    pass
-                        
-            # for all other errors...
-            # (likely CMS or CME from device)
-            except Exception:
-                traceback.print_exc()
-                # whatever went wrong, break out of the
-                # message prompt. if this is missed, all
-                # subsequent writes will go into the message!
-                self._write(chr(27))
-
-                # rule of thumb: pyGSM is meant to be embedded,
-                # so DO NOT EVER allow exceptions to propagate
-                # (obviously, this sucks. there should be an
-                # option, at least, but i'm being cautious)
-                return None
-
+    def break_out_of_prompt(self):
+        self._write(chr(27))
 
     def hardware(self):
         """Returns a dict of containing information about the physical
