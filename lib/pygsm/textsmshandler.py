@@ -155,7 +155,7 @@ class TextSmsHandler(SmsHandler):
         # this via reverse engineering and lost my notes
         if (ord(text[0]) == 130) and (text[1] == "@"):
             part_text = text[7:]
-
+            
             # ensure we have a place for the incoming
             # message part to live as they are delivered
             if sender not in self.multipart:
@@ -167,7 +167,7 @@ class TextSmsHandler(SmsHandler):
             # abort if this is not the last part
             if ord(text[5]) != 173:
                 return None
-
+            
             # last part, so switch out the received
             # part with the whole message, to be processed
             # below (the sender and timestamp are the same

@@ -325,7 +325,7 @@ class GsmModem(object):
         # return the lines that we weren't
         # interested in (almost all of them!)
         return output_lines
-
+        
     def command(self, cmd, read_term=None, read_timeout=None, write_term="\r", raise_errors=True):
         """Issue a single AT command to the modem, and return the sanitized
            response. Sanitization removes status notifications, command echo,
