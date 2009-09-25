@@ -32,7 +32,40 @@ class SendSmsTest(unittest.TestCase):
         verify(mockDevice, times=1).write("AT+CMGS=\"1234\"\r")
         # must see command with text and terminating char
         verify(mockDevice, times=1).write("Test Message\x1a")
+     
+    def testSendSmsTextModeWithHexUTF16Encoding(self):
+        """Checks that the GsmModem in Text mode accepts outgoing SMS,
+           when the text has Non-ASCII"""
+
+        # stub DeviceWrapper
+        mockDevice = Mock()
+        lines = []
+        lines.append("OK\r\n")
+        when(mockDevice).read_lines().thenReturn(lines)
         
+        gsm = pygsm.GsmModem(device=mockDevice, mode="TEXT")
+        # must see command to set TEXT mode
+        verify(mockDevice,times=1).write("AT+CMGF=1\r")
+        
+        csmp_response_lines = []
+        csmp_response_lines.append("+CSMP:1,2,3,4")
+        csmp_response_lines.append("OK")
+        err = errors.GsmReadTimeoutError(">")
+        when(mockDevice).read_lines().thenReturn(csmp_response_lines).thenReturn(lines).thenReturn(lines).thenRaise(err).thenReturn(lines)
+        gsm.send_sms("1234", u'La Pe\xf1a')
+        
+        verify(mockDevice, times=1).write("AT+CSMP?\r")
+        verify(mockDevice, times=1).write("AT+CSCS=\"HEX\"\r")
+        verify(mockDevice, times=1).write("AT+CSMP=1,2,3,8\r")
+        
+        # must see command with recipient
+        verify(mockDevice, times=1).write("AT+CMGS=\"1234\"\r")
+        # must see command with encoded text and terminating char
+        verify(mockDevice, times=1).write("fffe4c006100200050006500f1006100\x1a")
+        # command to set mode back 
+        verify(mockDevice, times=1).write("AT+CSMP=1,2,3,4\r")
+        verify(mockDevice, times=1).write("AT+CSCS=\"GSM\"\r")
+           
     def testSendSmsPduMode(self):
         """Checks that the GsmModem in PDU mode accepts outgoing SMS,
            when the text is within ASCII chars 22 - 126."""

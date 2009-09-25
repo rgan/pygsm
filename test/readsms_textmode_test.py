@@ -21,7 +21,6 @@ class ReadSmsTextModeTest(unittest.TestCase):
     def testShouldReturnStoredMessage(self):
         lines = []
         lines.append("+CMGL: 1,\"status\",\"14153773715\",,\"09/09/11,10:10:10\"")
-        # it does not matter what this is since we mock the parsing
         lines.append("Yo")
         when(self.mockDevice).read_lines().thenReturn(lines)
         pdu = self.gsm.next_message()
@@ -29,6 +28,16 @@ class ReadSmsTextModeTest(unittest.TestCase):
         self.assertEquals("14153773715", pdu.sender)
         self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent)
 
+    def testShouldReturnHexUTF16EncodedStoredMessage(self):
+        lines = []
+        lines.append("+CMGL: 1,\"status\",\"14153773715\",,\"09/09/11,10:10:10\"")
+        lines.append("Yo".encode("utf-16").encode("hex"))
+        when(self.mockDevice).read_lines().thenReturn(lines)
+        pdu = self.gsm.next_message()
+        self.assertEquals("Yo", pdu.text);
+        self.assertEquals("14153773715", pdu.sender)
+        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent)
+        
     def testShouldParseIncomingSms(self):
         lines = []
         lines.append("+CMT: \"14153773715\",,\"09/09/11,10:10:10\"")
