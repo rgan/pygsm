@@ -173,7 +173,7 @@ class GsmModem(object):
         if not hasattr(self, "device") or (self.device is None):
             with self.modem_lock:
                 self.device = DeviceWrapper(
-                    logger, *self.device_args,
+                    self.logger, *self.device_args,
                     **self.device_kwargs)
                 
         # the port already exists, but if we're
