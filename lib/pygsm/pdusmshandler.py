@@ -8,12 +8,13 @@ import re
 from smshandler import SmsHandler
 
 MAX_MESSAGES =255
-CMGL_MATCHER =re.compile(r'^\+CMGL:.*?$')
 
 class PduSmsHandler(SmsHandler):
+    CMGL_MATCHER =re.compile(r'^\+CMGL:.*?$')
+    CMGL_STATUS="0"
+    
     def __init__(self,modem):
         SmsHandler.__init__(self, modem)
-        self.multipart = {}
     
     def get_mode_cmd(self):
         return "AT+CMGF=0"
@@ -80,7 +81,7 @@ class PduSmsHandler(SmsHandler):
 			# option, at least, but i'm being cautious)
             return None
     
-    def parse_incoming_message(self, line):
+    def parse_incoming_message(self, header_line, line):
         try:
             pdu = gsmpdu.ReceivedGsmPdu(line)
             return self._process_incoming_pdu(pdu)
@@ -95,7 +96,7 @@ class PduSmsHandler(SmsHandler):
         pdu_lines=[]
         messages = []
         if len(lines)>0:
-            m=CMGL_MATCHER.match(lines[0])
+            m=self.CMGL_MATCHER.match(lines[0])
 
         while len(lines)>0:
             if m is None:
@@ -110,7 +111,7 @@ class PduSmsHandler(SmsHandler):
             # now loop through, popping content until we get
             # the next CMGL or out of lines
             while len(lines)>0:
-                m=CMGL_MATCHER.match(lines[0])
+                m=self.CMGL_MATCHER.match(lines[0])
                 if m is not None:
                     # got another header, get out
                     break

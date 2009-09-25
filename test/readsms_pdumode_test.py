@@ -8,7 +8,7 @@ from pygsm import errors
 
 from mockito import *
 
-class ReadSmsTest(unittest.TestCase):
+class ReadSmsPduModeTest(unittest.TestCase):
     
     def setUp(self):
         self.mockDevice = Mock()
@@ -16,7 +16,7 @@ class ReadSmsTest(unittest.TestCase):
         lines.append("OK\r\n")
         when(self.mockDevice).read_lines().thenReturn(lines)
         self.gsm = pygsm.GsmModem(device=self.mockDevice, mode="PDU")
-    
+        
     def testShouldParseIncomingSms(self):
         lines = []
         lines.append("+CMT:")
@@ -25,6 +25,7 @@ class ReadSmsTest(unittest.TestCase):
         ok_lines.append("OK\r\n")
         when(self.mockDevice).read_lines().thenReturn(lines).thenReturn(ok_lines)
         self.gsm.command("ATE0") # sms messages can be returned with any command
+        verify(self.mockDevice, times=1).write("AT+CNMA\r")
         pdu = self.gsm.incoming_queue.pop(0)
         self.assertEquals("Yo", pdu.text);
         self.assertEquals("14153773715", pdu.sender);

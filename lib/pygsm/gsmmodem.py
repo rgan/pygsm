@@ -16,10 +16,6 @@ from devicewrapper import DeviceWrapper
 from pdusmshandler import PduSmsHandler
 from textsmshandler import TextSmsHandler
 
-# Constants
-CMGL_STATUS="0" 
-HEX_MATCHER=re.compile(r'^[0-9a-f]+$')
-
 class GsmModem(object):
     """pyGSM is a Python module which uses pySerial to provide a nifty
        interface to send and receive SMS via a GSM Modem. It was ported
@@ -277,47 +273,6 @@ class GsmModem(object):
         except OSError, err:
             raise(errors.GsmWriteError)
 
-    SCTS_FMT = "%y/%m/%d,%H:%M:%S"
-    def _parse_incoming_timestamp(self, timestamp):
-        """Parse a Service Center Time Stamp (SCTS) string into a Python datetime
-           object, or None if the timestamp couldn't be parsed. The SCTS format does
-           not seem to be standardized, but looks something like: YY/MM/DD,HH:MM:SS."""
-
-        # timestamps usually have trailing timezones, measured
-        # in 15-minute intervals (?!), which is not handled by
-        # python's datetime lib. if _this_ timezone does, chop
-        # it off, and note the actual offset in minutes
-        tz_pattern = r"([-+])(\d+)$"
-        m = re.search(tz_pattern, timestamp)
-        if m is not None:
-            timestamp = re.sub(tz_pattern, "", timestamp)
-            tz_offset = datetime.timedelta(minutes=int(m.group(2)) * 15)
-            if m.group(1)=='-':
-                tz_offset = -tz_offset
-
-        # we won't be modifying the output, but
-        # still need an empty timedelta to subtract
-        else: 
-            tz_offset = datetime.timedelta()
-
-        # attempt to parse the (maybe modified) timestamp into
-        # a time_struct, and convert it into a datetime object
-        try:
-            time_struct = time.strptime(timestamp, self.SCTS_FMT)
-            dt = datetime.datetime(*time_struct[:6])
-            dt.replace(tzinfo=pytz.utc)
-           
-            # patch the time to represent UTC, since
-            dt-=tz_offset
-            return dt
-
-        # if the timestamp couldn't be parsed, we've encountered
-        # a format the pyGSM doesn't support. this sucks, but isn't
-        # important enough to explode like RubyGSM does
-        except ValueError:
-            traceback.print_exc()
-            return None
-
     def _parse_incoming_sms(self, lines):
         """Parse a list of lines (the output of GsmModem._wait), to extract any
            incoming SMS and append them to GsmModem.incoming_queue. Returns the
@@ -359,7 +314,7 @@ class GsmModem(object):
                 # TODO: also log this!
                 pass
 
-            msg = self.smshandler.parse_incoming_message(msg_line)
+            msg = self.smshandler.parse_incoming_message(lines[n], msg_line)
             if msg is not None:
                 self.incoming_queue.append(msg)
 
@@ -568,7 +523,7 @@ class GsmModem(object):
         """Fetch stored messages with CMGL and add to incoming queue
            Return number fetched"""
 
-        lines = self._strip_ok(self.command('AT+CMGL=%s' % CMGL_STATUS))
+        lines = self._strip_ok(self.command('AT+CMGL=%s' % self.smshandler.CMGL_STATUS))
         messages = self.smshandler.parse_stored_messages(lines)
         for msg in messages:
             self.incoming_queue.append(msg)
