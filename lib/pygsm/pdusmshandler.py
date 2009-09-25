@@ -3,14 +3,17 @@
 
 import gsmpdu
 import traceback
-import errors
+import errors, message
+import re
 from smshandler import SmsHandler
 
 MAX_MESSAGES =255
+CMGL_MATCHER =re.compile(r'^\+CMGL:.*?$')
 
 class PduSmsHandler(SmsHandler):
     def __init__(self,modem):
         SmsHandler.__init__(self, modem)
+        self.multipart = {}
     
     def get_mode_cmd(self):
         return "AT+CMGF=0"
@@ -75,4 +78,132 @@ class PduSmsHandler(SmsHandler):
 			# so DO NOT EVER allow exceptions to propagate
 			# (obviously, this sucks. there should be an
 			# option, at least, but i'm being cautious)
+            return None
+    
+    def parse_incoming_message(self, line):
+        try:
+            pdu = gsmpdu.ReceivedGsmPdu(line)
+            return self._process_incoming_pdu(pdu)
+        except:
+            print 'Error parsing PDU: %s', line # TODO log
+            return None
+            
+    def parse_stored_messages(self, lines):
+        # loop through all the lines attempting to match CMGL lines (the header)
+        # and then match NOT CMGL lines (the content)
+        # need to seed the loop first 'cause Python no like 'until' loops
+        pdu_lines=[]
+        messages = []
+        if len(lines)>0:
+            m=CMGL_MATCHER.match(lines[0])
+
+        while len(lines)>0:
+            if m is None:
+                # couldn't match OR no text data following match
+                raise(errors.GsmReadError())
+
+            # if here, we have a match AND text
+            # start by popping the header (which we have stored in the 'm'
+            # matcher object already)
+            lines.pop(0)
+
+            # now loop through, popping content until we get
+            # the next CMGL or out of lines
+            while len(lines)>0:
+                m=CMGL_MATCHER.match(lines[0])
+                if m is not None:
+                    # got another header, get out
+                    break
+                else:
+                    # HACK: For some reason on the multitechs the first
+                    # PDU line has the second '+CMGL' response tacked on
+                    # this may be a multitech bug or our bug in 
+                    # reading the responses. For now, split the response
+                    # on +CMGL
+                    line = lines.pop(0)
+                    line, cmgl, rest = line.partition('+CMGL')
+                    if len(cmgl)>0:
+                        lines.insert(0,'%s%s' % (cmgl,rest))
+                    pdu_lines.append(line)
+
+            # now create and process PDUs
+            for pl in pdu_lines:
+                try:
+                    pdu = gsmpdu.ReceivedGsmPdu(pl)
+                    msg = self._process_incoming_pdu(pdu)
+                    if msg is not None:
+                        messages.append(msg)
+
+                except Exception, ex:
+                    print ex
+                    print 'Error parsing PDU: %s' % pl # TODO log
+
+        return messages
+        
+    def _incoming_pdu_to_msg(self, pdu):
+        if pdu.text is None or len(pdu.text)==0:
+            self._log('Blank inbound text, ignoring')
+            return
+        
+        msg = message.IncomingMessage(self,
+                                      pdu.address,
+                                      pdu.sent_ts,
+                                      pdu.text)
+        return msg
+
+    def _process_incoming_pdu(self, pdu):
+        if pdu is None:
+            return
+
+        # is this a multi-part (concatenated short message, csm)?
+        if pdu.is_csm:
+            # process pdu will either
+            # return a 'super' pdu with the entire
+            # message (if this is the last segment)
+            # or None if there are more segments coming
+            pdu = self._process_csm(pdu)
+ 
+        if pdu is not None:
+            return self._incoming_pdu_to_msg(pdu)
+        return None
+
+    def _process_csm(self, pdu):
+        if not pdu.is_csm:
+            return pdu
+
+        # self.multipart is a dict of dicts of dicts
+        # holding all parts of messages by sender
+        # e.g. { '4155551212' : { 0: { seq1: pdu1, seq2: pdu2{ } }
+        #
+        if pdu.address not in self.multipart:
+            self.multipart[pdu.address]={}
+
+        sender_msgs=self.multipart[pdu.address]
+        if pdu.csm_ref not in sender_msgs:
+            sender_msgs[pdu.csm_ref]={}
+
+        # these are all the pdus in this 
+        # sequence we've recived
+        received = sender_msgs[pdu.csm_ref]
+        received[pdu.csm_seq]=pdu
+        
+        # do we have them all?
+        if len(received)==pdu.csm_total:
+            pdus=received.values()
+            pdus.sort(key=lambda x: x.csm_seq)
+            text = ''.join([p.text for p in pdus])
+            
+            # now make 'super-pdu' out of the first one
+            # to hold the full text
+            super_pdu = pdus[0]
+            super_pdu.csm_seq = 0
+            super_pdu.csm_total = 0
+            super_pdu.pdu_string = None
+            super_pdu.text = text
+            super_pdu.encoding = None
+        
+            del sender_msgs[pdu.csm_ref]
+            
+            return super_pdu
+        else:
             return None

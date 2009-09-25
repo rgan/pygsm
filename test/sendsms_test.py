@@ -8,7 +8,7 @@ from pygsm import errors
 
 from mockito import *
 
-class TestModem(unittest.TestCase):
+class SendSmsTest(unittest.TestCase):
 
     def testSendSmsTextMode(self):
         """Checks that the GsmModem in Text mode accepts outgoing SMS,

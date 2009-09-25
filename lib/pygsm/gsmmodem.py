@@ -12,14 +12,12 @@ import errors, message
 import traceback
 import threading
 import gsmcodecs
-import gsmpdu
 from devicewrapper import DeviceWrapper
 from pdusmshandler import PduSmsHandler
 from textsmshandler import TextSmsHandler
 
 # Constants
 CMGL_STATUS="0" 
-CMGL_MATCHER=re.compile(r'^\+CMGL:.*?$')
 HEX_MATCHER=re.compile(r'^[0-9a-f]+$')
 
 class GsmModem(object):
@@ -342,7 +340,7 @@ class GsmModem(object):
                 n += 1
                 continue
 
-            pdu_line = lines[n+1].strip()
+            msg_line = lines[n+1].strip()
 
             # notify the network that we accepted
             # the incoming message (for read receipt)
@@ -361,13 +359,10 @@ class GsmModem(object):
                 # TODO: also log this!
                 pass
 
-            # now decode the message
-            try:
-                pdu = gsmpdu.ReceivedGsmPdu(pdu_line)
-            except:
-                self._log('Error parsing PDU: %s', pdu_line)
-            self._process_incoming_pdu(pdu)
-        
+            msg = self.smshandler.parse_incoming_message(msg_line)
+            if msg is not None:
+                self.incoming_queue.append(msg)
+
             # jump over the CMT line, and the
             # pdu line, and continue iterating
             n += 2
@@ -375,73 +370,6 @@ class GsmModem(object):
         # return the lines that we weren't
         # interested in (almost all of them!)
         return output_lines
-
-    def _process_incoming_pdu(self, pdu):
-        if pdu is None:
-            return
-
-        # is this a multi-part (concatenated short message, csm)?
-        if pdu.is_csm:
-            # process pdu will either
-            # return a 'super' pdu with the entire
-            # message (if this is the last segment)
-            # or None if there are more segments coming
-            pdu = self._process_csm(pdu)
-            
-        if pdu is not None:
-            self._add_incoming_pdu(pdu)
-
-    def _process_csm(self, pdu):
-        if not pdu.is_csm:
-            return pdu
-
-        # self.multipart is a dict of dicts of dicts
-        # holding all parts of messages by sender
-        # e.g. { '4155551212' : { 0: { seq1: pdu1, seq2: pdu2{ } }
-        #
-        if pdu.address not in self.multipart:
-            self.multipart[pdu.address]={}
-
-        sender_msgs=self.multipart[pdu.address]
-        if pdu.csm_ref not in sender_msgs:
-            sender_msgs[pdu.csm_ref]={}
-
-        # these are all the pdus in this 
-        # sequence we've recived
-        received = sender_msgs[pdu.csm_ref]
-        received[pdu.csm_seq]=pdu
-
-        # do we have them all?
-        if len(received)==pdu.csm_total:
-            pdus=received.values()
-            pdus.sort(key=lambda x: x.csm_seq)
-            text = ''.join([p.text for p in pdus])
-            
-            # now make 'super-pdu' out of the first one
-            # to hold the full text
-            super_pdu = pdus[0]
-            super_pdu.csm_seq = 0
-            super_pdu.csm_total = 0
-            super_pdu.pdu_string = None
-            super_pdu.text = text
-            super_pdu.encoding = None
-        
-            del sender_msgs[pdu.csm_ref]
-            
-            return super_pdu
-        else:
-            return None
-        
-    def _add_incoming_pdu(self, pdu):
-        if pdu.text is None or len(pdu.text)==0:
-            self._log('Blank inbound text, ignoring')
-            return
-
-        msg = message.IncomingMessage(self,
-                                      pdu.address,
-                                      pdu.sent_ts,
-                                      pdu.text)
-        self.incoming_queue.append(msg)
 
     def command(self, cmd, read_term=None, read_timeout=None, write_term="\r", raise_errors=True):
         """Issue a single AT command to the modem, and return the sanitized
@@ -641,52 +569,9 @@ class GsmModem(object):
            Return number fetched"""
 
         lines = self._strip_ok(self.command('AT+CMGL=%s' % CMGL_STATUS))
-        # loop through all the lines attempting to match CMGL lines (the header)
-        # and then match NOT CMGL lines (the content)
-        # need to seed the loop first 'cause Python no like 'until' loops
-        pdu_lines=[]
-        if len(lines)>0:
-            m=CMGL_MATCHER.match(lines[0])
-
-        while len(lines)>0:
-            if m is None:
-                # couldn't match OR no text data following match
-                raise(errors.GsmReadError())
-
-            # if here, we have a match AND text
-            # start by popping the header (which we have stored in the 'm'
-            # matcher object already)
-            lines.pop(0)
-
-            # now loop through, popping content until we get
-            # the next CMGL or out of lines
-            while len(lines)>0:
-                m=CMGL_MATCHER.match(lines[0])
-                if m is not None:
-                    # got another header, get out
-                    break
-                else:
-                    # HACK: For some reason on the multitechs the first
-                    # PDU line has the second '+CMGL' response tacked on
-                    # this may be a multitech bug or our bug in 
-                    # reading the responses. For now, split the response
-                    # on +CMGL
-                    line = lines.pop(0)
-                    line, cmgl, rest = line.partition('+CMGL')
-                    if len(cmgl)>0:
-                        lines.insert(0,'%s%s' % (cmgl,rest))
-                    pdu_lines.append(line)
-
-            # now create and process PDUs
-            for pl in pdu_lines:
-                try:
-                    pdu = gsmpdu.ReceivedGsmPdu(pl)
-                except:
-                    self._log('Error parsing PDU: %s' % pl)
-                self._process_incoming_pdu(pdu)
-
-        return len(pdu_lines)
-
+        messages = self.smshandler.parse_stored_messages(lines)
+        for msg in messages:
+            self.incoming_queue.append(msg)
 
     def next_message(self, ping=True, fetch=True):
         """Returns the next waiting IncomingMessage object, or None if the
