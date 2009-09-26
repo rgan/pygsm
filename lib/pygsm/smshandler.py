@@ -3,6 +3,8 @@
 
 import re
 
+ERR_MSG = "Must use one of concrete subclasses:PduSmsHandler or TextSmsHandler"
+
 class SmsHandler(object):
 	
     def __init__(self,modem):
@@ -10,15 +12,15 @@ class SmsHandler(object):
         self.multipart = {}
 
     def send_sms(self, recipient, text):
-        raise Exception("Must use one of concrete subclasses:PduSmsHandler or TextSmsHandler")
+        raise Exception(ERR_MSG)
 	
 	def get_mode_cmd(self):
-	    raise Exception("Must use one of concrete subclasses:PduSmsHandler or TextSmsHandler")
+	    raise Exception(ERR_MSG)
 	
 	# returns a list of messages
 	def parse_stored_messages(self, lines):
-	    raise Exception("Must use one of concrete subclasses:PduSmsHandler or TextSmsHandler")
+	    raise Exception(ERR_MSG)
 
     # returns a single message   
     def parse_incoming_message(self, header_line, line):
-        raise Exception("Must use one of concrete subclasses:PduSmsHandler or TextSmsHandler")
+        raise Exception(ERR_MSG)
