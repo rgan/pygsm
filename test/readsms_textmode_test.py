@@ -6,38 +6,44 @@ import unittest
 import pygsm
 import datetime
 from pygsm import errors
+from textmode_test_base import TextModeTestBase
 
 from mockito import *
 
-class ReadSmsTextModeTest(unittest.TestCase):
-    
-    def setUp(self):
-        self.mockDevice = Mock()
-        lines = []
-        lines.append("OK\r\n")
-        when(self.mockDevice).read_lines().thenReturn(lines)
-        self.gsm = pygsm.GsmModem(device=self.mockDevice, mode="TEXT")
-    
+class ReadSmsTextModeTest(TextModeTestBase):
+       
     def testShouldReturnStoredMessage(self):
         lines = []
         lines.append("+CMGL: 1,\"status\",\"14153773715\",,\"09/09/11,10:10:10\"")
         lines.append("Yo")
         when(self.mockDevice).read_lines().thenReturn(lines)
-        pdu = self.gsm.next_message()
-        self.assertEquals("Yo", pdu.text);
-        self.assertEquals("14153773715", pdu.sender)
-        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent)
+        msg = self.gsm.next_message(ping=False)
+        self.assertEquals("Yo", msg.text);
+        self.assertEquals("14153773715", msg.sender)
+        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent)
+        # verify command to fetch_stored_messages
+        verify(self.mockDevice,times=2).write("AT+CMGL=REC UNREAD\r")
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
+        
+        verifyNoMoreInteractions(self.mockDevice)
 
     def testShouldReturnHexUTF16EncodedStoredMessage(self):
         lines = []
         lines.append("+CMGL: 1,\"status\",\"14153773715\",,\"09/09/11,10:10:10\"")
         lines.append("Yo".encode("utf-16").encode("hex"))
         when(self.mockDevice).read_lines().thenReturn(lines)
-        pdu = self.gsm.next_message()
-        self.assertEquals("Yo", pdu.text);
-        self.assertEquals("14153773715", pdu.sender)
-        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent)
+        msg = self.gsm.next_message(ping=False)
+        self.assertEquals("Yo", msg.text);
+        self.assertEquals("14153773715", msg.sender)
+        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent)
+        # verify command to fetch_stored_messages
+        verify(self.mockDevice,times=2).write("AT+CMGL=REC UNREAD\r")
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
         
+        verifyNoMoreInteractions(self.mockDevice)
+
     def testShouldParseIncomingSms(self):
         lines = []
         lines.append("+CMT: \"14153773715\",,\"09/09/11,10:10:10\"")
@@ -45,14 +51,18 @@ class ReadSmsTextModeTest(unittest.TestCase):
         ok_lines = []
         ok_lines.append("OK\r\n")
         when(self.mockDevice).read_lines().thenReturn(lines).thenReturn(ok_lines)
-        # sms messages can be returned with any command
-        self.gsm.command("ATE0")
+        msg = self.gsm.next_message(ping=True,fetch=False)        
+        self.assertEquals("Yo", msg.text);
+        self.assertEquals("14153773715", msg.sender);
+        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent);
+        # verify that ping command AT is issued
+        verify(self.mockDevice, times=1).write("AT\r")
         # verify that command is issued for read receipt
         verify(self.mockDevice, times=1).write("AT+CNMA\r")
-        pdu = self.gsm.incoming_queue.pop(0)
-        self.assertEquals("Yo", pdu.text);
-        self.assertEquals("14153773715", pdu.sender);
-        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent);
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
+        
+        verifyNoMoreInteractions(self.mockDevice)
      
     def testShouldParseIncomingSmsWithMangledHeader(self):
         lines = []
@@ -61,14 +71,18 @@ class ReadSmsTextModeTest(unittest.TestCase):
         ok_lines = []
         ok_lines.append("OK\r\n")
         when(self.mockDevice).read_lines().thenReturn(lines).thenReturn(ok_lines)
-        # sms messages can be returned with any command
-        self.gsm.command("ATE0")
+        msg = self.gsm.next_message(ping=True,fetch=False) 
+        # verify that ping command AT is issued
+        verify(self.mockDevice, times=1).write("AT\r")   
         # verify that command is issued for read receipt
         verify(self.mockDevice, times=1).write("AT+CNMA\r")
-        pdu = self.gsm.incoming_queue.pop(0)
-        self.assertEquals("Yo", pdu.text);
-        self.assertEquals("", pdu.sender);
-        self.assertEquals(None, pdu.sent);
+        self.assertEquals("Yo", msg.text);
+        self.assertEquals("", msg.sender);
+        self.assertEquals(None, msg.sent);
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
+        
+        verifyNoMoreInteractions(self.mockDevice)
   
     def testShouldParseIncomingMultipartSms(self):
         lines = []
@@ -82,11 +96,15 @@ class ReadSmsTextModeTest(unittest.TestCase):
         ok_lines = []
         ok_lines.append("OK\r\n")
         when(self.mockDevice).read_lines().thenReturn(lines).thenReturn(ok_lines)
-        # sms messages can be returned with any command
-        self.gsm.command("ATE0")
+        msg = self.gsm.next_message(ping=True,fetch=False)
+        # verify that ping command AT is issued
+        verify(self.mockDevice, times=1).write("AT\r")   
         # verify that command is issued for read receipt
         verify(self.mockDevice, times=2).write("AT+CNMA\r")
-        pdu = self.gsm.incoming_queue.pop(0)
-        self.assertEquals("firstpartofmultipartsecondpartofmultipart", pdu.text);
-        self.assertEquals("14153773715", pdu.sender);
-        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), pdu.sent);
+        self.assertEquals("firstpartofmultipartsecondpartofmultipart", msg.text);
+        self.assertEquals("14153773715", msg.sender);
+        self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent);
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
+        
+        verifyNoMoreInteractions(self.mockDevice)

@@ -5,30 +5,11 @@
 import unittest
 import pygsm
 from pygsm import errors
-
+from pdumode_test_base import PduModeTestBase 
 from mockito import *
 
-class SendSmsPduModeTest(unittest.TestCase):
-    
-    def setUp(self):
-        self.mockDevice = Mock()
-        self.oklines = []
-        self.oklines.append("OK\r\n")
-        when(self.mockDevice).read_lines().thenReturn(self.oklines)
-        self.gsm = pygsm.GsmModem(device=self.mockDevice, mode="PDU")
-        # verify the config commands
-        verify(self.mockDevice,times=1).write("ATE0\r")
-        verify(self.mockDevice,times=1).write("AT+CMEE=1\r")
-        verify(self.mockDevice,times=1).write("AT+WIND=0\r")
-        verify(self.mockDevice,times=1).write("AT+CSMS=1\r")
-        
-        # must see command to set PDU mode
-        verify(self.mockDevice,times=1).write("AT+CMGF=0\r")
-        
-        verify(self.mockDevice, times=1).write("AT+CNMI=2,2,0,0,0\r")
-        # verify fetch_stored_messages in boot
-        verify(self.mockDevice,times=1).write("AT+CMGL=0\r")
-        
+class SendSmsPduModeTest(PduModeTestBase):
+            
     def testSendSmsPduMode(self):
         """Checks that the GsmModem in PDU mode accepts outgoing SMS,
            when the text is within ASCII chars 22 - 126."""
