@@ -335,7 +335,7 @@ class GsmModem(object):
            If Error 515 (init or command in progress) is returned, the command
            is automatically retried up to _GsmModem.max_retries_ times."""
 
-        # keep looping until the command
+		# keep looping until the command
         # succeeds or we hit the limit
         retries = 0
         while retries < self.max_retries:

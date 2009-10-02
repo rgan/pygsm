@@ -10,7 +10,7 @@ from smshandler import SmsHandler
 class TextSmsHandler(SmsHandler):
     SCTS_FMT = "%y/%m/%d,%H:%M:%S"
     CMGL_MATCHER=re.compile(r'^\+CMGL: (\d+),"(.+?)","(.+?)",*?,"(.+?)".*?$')
-    CMGL_STATUS="REC UNREAD"
+    CMGL_STATUS='"REC UNREAD"'
     
     def __init__(self, modem):
         SmsHandler.__init__(self, modem)
