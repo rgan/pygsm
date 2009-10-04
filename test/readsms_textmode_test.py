@@ -22,7 +22,7 @@ class ReadSmsTextModeTest(TextModeTestBase):
         self.assertEquals("14153773715", msg.sender)
         self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent)
         # verify command to fetch_stored_messages
-        verify(self.mockDevice,times=2).write("AT+CMGL=REC UNREAD\r")
+        verify(self.mockDevice,times=2).write("AT+CMGL=\"REC UNREAD\"\r")
         # allow any number of reads
         verify(self.mockDevice, atleast=1).read_lines()
         
@@ -38,7 +38,7 @@ class ReadSmsTextModeTest(TextModeTestBase):
         self.assertEquals("14153773715", msg.sender)
         self.assertEquals(datetime.datetime(2009, 9, 11, 10, 10, 10), msg.sent)
         # verify command to fetch_stored_messages
-        verify(self.mockDevice,times=2).write("AT+CMGL=REC UNREAD\r")
+        verify(self.mockDevice,times=2).write("AT+CMGL=\"REC UNREAD\"\r")
         # allow any number of reads
         verify(self.mockDevice, atleast=1).read_lines()
         

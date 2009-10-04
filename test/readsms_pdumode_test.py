@@ -27,7 +27,25 @@ class ReadSmsPduModeTest(PduModeTestBase):
         # allow any number of reads
         verify(self.mockDevice, atleast=1).read_lines()
         verifyNoMoreInteractions(self.mockDevice)
-           
+    
+    def testShouldParseIncomingSmsHelloInChinese(self):
+        lines = []
+        lines.append("+CMT:")
+        lines.append("07912180958729F8040B814151733717F500089090035194358A044F60597D")
+        ok_lines = []
+        ok_lines.append("OK\r\n")
+        when(self.mockDevice).read_lines().thenReturn(lines).thenReturn(ok_lines)
+        pdu = self.gsm.next_message(ping=True,fetch=False)
+        # verify that ping command AT is issued
+        verify(self.mockDevice, times=1).write("AT\r")   
+        # verify that command is issued for read receipt
+        verify(self.mockDevice, times=1).write("AT+CNMA\r")
+        self.assertEquals(u'\u4f60\u597d', pdu.text);
+        self.assertEquals("14153773715", pdu.sender);
+        # allow any number of reads
+        verify(self.mockDevice, atleast=1).read_lines()
+        verifyNoMoreInteractions(self.mockDevice)
+               
     def testShouldReturnEmptyIfNoStoredMessages(self):
         lines = []
         lines.append("+CMGL:")

@@ -25,4 +25,4 @@ class TextModeTestBase(unittest.TestCase):
         verify(self.mockDevice,times=1).write("AT+CMGF=1\r")
         verify(self.mockDevice, times=1).write("AT+CNMI=2,2,0,0,0\r")
         # verify fetch_stored_messages in boot
-        verify(self.mockDevice,times=1).write("AT+CMGL=REC UNREAD\r")
+        verify(self.mockDevice,times=1).write("AT+CMGL=\"REC UNREAD\"\r")
